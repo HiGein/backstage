@@ -1,0 +1,86 @@
+def files = ['data.txt']
+
+pipeline {
+  environment {
+    s3Bucket = 'alexp-bucket'
+    s3Path = 'artifacts/'
+    registry = '161192472568.dkr.ecr.us-east-1.amazonaws.com/alexp'
+    registryCredentials = 'AWS'
+    awsRegion = 'us-east-1'
+    dockerImage = ''
+  }
+  options {
+    disableConcurrentBuilds()
+  }
+  agent none
+  triggers {
+    cron('H/50 * * * *')
+  }
+  stages {
+    stage('Clean') {
+      agent any
+      steps {
+        cleanWs()
+      }
+    }
+    stage('Build, run, push & upload') {
+      agent any
+      when {
+        not {
+          expression { return currentBuild.rawBuild.getCause(hudson.triggers.TimerTrigger$TimerTriggerCause) }
+        }
+      }
+      steps {
+        script {
+          dockerImage = docker.build registry + ":${BUILD_TAG}"
+          dockerImage.inside {
+            sh """
+               cp /usr/local/bin/data.txt ${WORKSPACE}
+            """
+          }
+          docker.withRegistry("https://" + registry, "ecr:" + awsRegion + ":" + registryCredentials) {
+            dockerImage.push()
+          }
+          // def files = "${files}"
+          files.each {
+            withAWS(region:"${awsRegion}", credentials:"${registryCredentials}") {
+              s3Upload(
+                bucket: "${s3Bucket}",
+                file: "${it}",
+                path: "${s3Path}",
+                metadatas: ["commit:${env.GIT_COMMIT}", "branch:${env.BRANCH}"]
+              )
+            }
+          }
+        }
+      }
+    }
+    stage('Download & test') {
+      agent any
+      when {
+        anyOf {
+          expression {
+            return currentBuild.rawBuild.getCause(hudson.triggers.TimerTrigger$TimerTriggerCause)
+          }
+          triggeredBy 'UserIdCause'
+        }
+      }
+      steps {
+        script {
+          files.each {
+            sh "rm -rf ${it}"
+            withAWS(region:"${awsRegion}", credentials:"${registryCredentials}") {
+              s3Download(
+                bucket: "${s3Bucket}",
+                file: "${it}",
+                path: "${s3Path}"
+              )
+            }
+            sh "ls -la ${it}/${s3Path}"
+            sh "[ -s ${it}/${s3Path}${it} ] && cat ${it}/${s3Path}${it} || echo 'The file is empty'"
+          }
+        }
+      }
+    }
+  }
+}

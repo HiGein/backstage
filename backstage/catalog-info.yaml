@@ -1,0 +1,16 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: github
+  description: An example of a Backstage application.
+  # Example for optional annotations
+  # annotations:
+  #   github.com/project-slug: backstage/backstage
+  #   backstage.io/techdocs-ref: dir:.
+  annotations:
+    github.com/project-slug: 'HiGein/jenkins_test'
+  #  github.com/project-slug: backstage/backstage
+spec:
+  type: service
+  owner: alexeyjaga@gmail.com
+  lifecycle: production
